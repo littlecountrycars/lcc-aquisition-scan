@@ -9,7 +9,8 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
   };
-  let settings = Object.assign({ name: '' }, store.get(LS.settings, {}));
+  let settings = Object.assign({ name: '', minProfit: 2500, fees: 0 }, store.get(LS.settings, {}));
+  const SCOUT_URL = 'https://claude.ai/artifact/6bBGxC5drP42KJE9sGJYgZ';
   let elm = null, transport = null, current = null, busy = false;
 
   /* ---------- helpers ---------- */
@@ -23,6 +24,7 @@
     show($('disconnectBtn'), !!transport);
     show($('connectBtn'), !transport);
     $('scanBtn').disabled = !transport || busy;
+    $('quickBtn').disabled = !transport || busy;
   }
   function err(box, msg) { box.textContent = msg; show(box, !!msg); }
   function renderFindings(ul, findings) {
@@ -198,7 +200,7 @@
   async function scan() {
     if (!elm || busy) return;
     busy = true; setPill(); err($('scanErr'), ''); show($('autoNote'), false);
-    show($('scanProgress')); show($('resultCard'), false); show($('idleCard'), false); show($('sendCard'), false); show($('driveCard'), false);
+    show($('scanProgress')); show($('callCard'), false); show($('resultCard'), false); show($('idleCard'), false); show($('sendCard'), false); show($('driveCard'), false);
     show($('idleResult'), false); show($('idleLive'), false);
     $('sendMsg').classList.add('hidden');
     try {
@@ -233,7 +235,9 @@
       show($('sendCard'));
       current.estimate = { lines: [], removed: [] };
       renderEstimate();
-      $('notes').value = '';
+      $('notes').value = ''; $('salePrice').value = '';
+      renderBid(); renderCall();
+      return true;
     } catch (e) {
       const msg = e && e.message === 'NO_ECU'
         ? 'The scanner is connected but the truck didn\u2019t answer. Turn the key to ON or start the truck, wait 5 seconds, and tap Scan again.'
@@ -257,7 +261,7 @@
       const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; d.append(dt, dd); dl.appendChild(d); };
     add('VIN', r.vin || 'Not readable', true);
     if (current.decoded) add('Vehicle', current.decoded.label, true);
-    add('Stock #', current.stock || '—');
+    add('Lane / run #', current.stock || '—');
     add('Battery', r.voltage != null ? r.voltage.toFixed(1) + ' V' : null);
     add('Engine', r.engineRunning == null ? null : r.engineRunning ? 'Running, ' + Math.round(r.rpm) + ' RPM' : 'Off (key on)');
     add('Coolant', r.coolantF != null ? r.coolantF + '\u00b0F' : null);
@@ -288,7 +292,7 @@
   }
 
   async function decodeVin(rec) {
-    if (!rec.vin || rec.vin.length !== 17 || !navigator.onLine) return;
+    if (!rec.vin || rec.vin.length !== 17 || !navigator.onLine) return false;
     try {
       const res = await fetch('https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/' + rec.vin + '?format=json');
       const j = await res.json(); const v = j.Results && j.Results[0];
@@ -296,14 +300,14 @@
       const eng = [v.DisplacementL ? (+v.DisplacementL).toFixed(1) + 'L' : '', v.EngineCylinders ? 'V' + v.EngineCylinders : '', /diesel/i.test(v.FuelTypePrimary || '') ? 'diesel' : ''].filter(Boolean).join(' ');
       rec.decoded = { year: v.ModelYear, make: v.Make, model: v.Model, trim: v.Trim || v.Series || '', engine: eng, drive: v.DriveType || '',
         label: [v.ModelYear, titleCase(v.Make), v.Model, v.Trim].filter(Boolean).join(' ') + (eng ? ' \u00b7 ' + eng : '') };
-      if (rec === current) { renderScan(); renderEstimate(); }
-      saveHist();
+      if (rec === current) { renderScan(); renderEstimate(); renderBid(); renderCall(); }
+      updateHist(rec);
       try {
         const rr = await fetch('https://api.nhtsa.gov/recalls/recallsByVehicle?make=' + encodeURIComponent(v.Make) + '&model=' + encodeURIComponent(v.Model) + '&modelYear=' + v.ModelYear);
         const rj = await rr.json();
         rec.recalls = { count: (rj.results || rj.Results || []).length, items: (rj.results || rj.Results || []).slice(0, 8).map((x) => ({ id: x.NHTSACampaignNumber, part: x.Component })) };
         if (rec === current) renderScan();
-        saveHist();
+        updateHist(rec);
       } catch (e) {}
     } catch (e) { /* offline or NHTSA down: fine */ }
   }
@@ -324,7 +328,7 @@
       current.crank = r; current.crankAssessment = a;
       renderFindings($('crankFindings'), a.findings); show($('crankFindings'));
       current.scan.engineRunning = a.last > 13 || current.scan.engineRunning;
-      prepIdle(); renderEstimate(); saveHist();
+      prepIdle(); renderEstimate(); renderBid(); renderCall(); saveHist();
     } finally {
       if (current.demo) OBD.DEMO_TRUCK.crankAt = 0;
       busy = false; setPill(); $('crankBtn').disabled = false; $('crankCue').textContent = '';
@@ -342,7 +346,8 @@
     $('idleBtn').textContent = demo && !running ? 'Run idle check (demo starts the engine)' : 'Run 30-second idle check';
   }
 
-  async function runIdle() {
+  async function runIdle(seconds) {
+    seconds = typeof seconds === 'number' ? seconds : 30;
     if (!elm || busy || !current) return;
     busy = true; setPill(); $('idleBtn').disabled = true;
     show($('idleLive')); show($('idleResult'), false);
@@ -351,7 +356,7 @@
     const pts = [];
     try {
       const r = await OBD.idleCheck(elm, {
-        seconds: 30, supported: current.scan.supported,
+        seconds, supported: current.scan.supported,
         onSample: (rpm, frac) => { pts.push(rpm); $('rpmNow').textContent = Math.round(rpm); $('idleBar').style.width = Math.min(100, frac * 100) + '%'; drawSpark(pts); }
       });
       $('idleBar').style.width = '100%';
@@ -360,7 +365,7 @@
       renderVerdict($('idleVerdict'), a.overall, a.stats ? 'Average idle ' + a.stats.mean + ' RPM over ' + a.stats.samples + ' readings' : '');
       renderFindings($('idleFindings'), a.findings);
       show($('idleResult'));
-      renderEstimate(); saveHist();
+      renderEstimate(); renderBid(); renderCall(); saveHist();
     } catch (e) {
       err($('scanErr'), 'Idle check stopped: ' + ((e && e.message) || 'unknown error'));
     } finally {
@@ -409,12 +414,12 @@
       current.drive = { start: r.start, end: r.end, stats: a.stats }; current.driveAssessment = a;
       renderVerdict($('driveVerdict'), a.overall, a.stats ? a.stats.minutes + ' min, ' + a.stats.miles + ' mi, top ' + a.stats.maxMph + ' mph' : '');
       renderFindings($('driveFindings'), a.findings); show($('driveResult'));
-      renderEstimate(); saveHist();
+      renderEstimate(); renderBid(); renderCall(); saveHist();
     } catch (e) {
       err($('scanErr'), 'Test drive stopped: ' + ((e && e.message) || 'unknown error'));
     } finally {
       if (wake) try { wake.release(); } catch (e) {}
-      busy = false; setPill(); show($('driveLive'), false); show($('driveBtn')); $('driveBtn').textContent = 'Record another test drive';
+      busy = false; setPill(); show($('driveLive'), false); show($('driveBtn')); $('driveBtn').textContent = 'Record another lane drive';
     }
   }
 
@@ -474,6 +479,7 @@
     const over = bigTicket(current).any;
     $('estWarn').textContent = over ? 'Over $1,000 in likely recon, or a big-ticket repair. Factor it into your bid or pass.' : '';
     show($('estWarn'), over);
+    renderBid(); renderCall();
   }
   function addLine() {
     const d = $('estNewDesc').value.trim(), amt = +$('estNewAmt').value || 0;
@@ -483,11 +489,142 @@
     renderEstimate(); saveHist();
   }
 
+
+  /* ---------- red flags, the call, max bid (auction) ---------- */
+  const money = (n) => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString();
+  function redFlags(rec) {
+    const F = []; const add = (sev, title, detail) => F.push({ sev, title, detail: detail || '' });
+    const s = rec.scan || {}, st = s.status;
+    const recent = (s.distSinceClearMi != null && s.distSinceClearMi < 60) || (s.warmupsSinceClear != null && s.warmupsSinceClear < 5);
+    const notReady = st ? st.monitors.filter((m) => !m.complete) : [];
+    if (recent) add(notReady.length >= 2 ? 'hard' : 'soft', 'Codes cleared recently',
+      [s.distSinceClearMi != null ? s.distSinceClearMi + ' mi' : '', s.warmupsSinceClear != null ? s.warmupsSinceClear + ' warm-ups' : ''].filter(Boolean).join(', ') + ' since the last reset. Problems may be hidden.');
+    if (notReady.length >= 2) add('soft', notReady.length + ' self-tests not finished', notReady.map((m) => m.name).join(', '));
+    const dash = rec.milesSource === 'dash' ? rec.miles : null;
+    if (dash && s.odometerMi && Math.abs(s.odometerMi - dash) > 1000) add('hard', 'Odometer mismatch', 'Computer says ' + Math.round(s.odometerMi).toLocaleString() + ' mi, dash ' + (+dash).toLocaleString() + ' mi.');
+    if (rec.vin && s.vinValid === false) add('soft', 'VIN doesn’t check out', 'Compare the computer VIN to the dash plate and door jamb.');
+    if (st && st.mil) add('soft', 'Check engine light is on', '');
+    const codes = [...new Set([...(s.stored || []), ...(s.pending || []), ...(s.permanent || [])])];
+    const trans = codes.filter((c) => /^P0(7|8)/.test(c));
+    if (trans.length) add('hard', 'Transmission code' + (trans.length > 1 ? 's' : ''), trans.join(', '));
+    const mods = (s.modules && s.modules.modules) || [];
+    mods.forEach((m) => {
+      if (!m.codes.length) return;
+      if (/Airbag/.test(m.name)) add('hard', 'Airbag fault', m.codes.map((c) => c.code).join(', ') + '. Must be fixed before sale.');
+      else if (/Transmission/.test(m.name) && m.codes.some((c) => c.active)) add('hard', 'Transmission module fault', m.codes.map((c) => c.code).join(', '));
+      else if (/ABS|steering|4x4/i.test(m.name) && m.codes.some((c) => c.active)) add('soft', m.name + ' fault', m.codes.map((c) => c.code).join(', '));
+    });
+    const big = codes.filter((c) => OBD.fixFor(c).tier === '$$$' && !/^P0(7|8)/.test(c));
+    if (big.length) add('soft', 'Big-ticket code' + (big.length > 1 ? 's' : ''), big.map((c) => c + ' ' + OBD.describeCode(c)).join('; '));
+    const ia = rec.idleAssessment;
+    if (ia) ia.findings.forEach((f) => { if (f.level === 'problem' && /Misfire|Rough|lean|rich/i.test(f.title)) add('soft', f.title, ''); });
+    const da = rec.driveAssessment;
+    if (da) da.findings.forEach((f) => { if (f.level === 'problem') add(/flared|wavering/i.test(f.title) ? 'hard' : 'soft', f.title, ''); });
+    if (rec.crankAssessment) rec.crankAssessment.findings.forEach((f) => { if (f.level === 'problem') add('soft', f.title, ''); });
+    F.sort((a, b) => (a.sev === 'hard' ? 0 : 1) - (b.sev === 'hard' ? 0 : 1));
+    return F;
+  }
+  function maxBid(rec) {
+    const sale = +rec.salePrice || 0;
+    if (!sale) return null;
+    const recon = estTotal(rec), profit = +settings.minProfit || 0, fees = +settings.fees || 0;
+    return { sale, recon, profit, fees, bid: sale - recon - profit - fees };
+  }
+  function theCall(rec) {
+    const flags = redFlags(rec), hard = flags.filter((f) => f.sev === 'hard'), soft = flags.filter((f) => f.sev === 'soft');
+    const mb = maxBid(rec), recon = estTotal(rec);
+    let level = 'good', word = 'Bid', why = 'Nothing serious found.';
+    if (hard.length) { level = 'problem'; word = 'Walk away'; why = hard.map((f) => f.title).join(', ') + '.'; }
+    else if (mb && mb.bid <= 0) { level = 'problem'; word = 'Walk away'; why = 'Recon and profit eat the whole expected sale price.'; }
+    else if (soft.length || recon > 1000) { level = 'watch'; word = 'Caution'; why = (soft.length ? soft.map((f) => f.title).join(', ') + '. ' : '') + (recon > 1000 ? 'About ' + money(recon) + ' in likely recon.' : ''); }
+    const checked = ['scan'];
+    if (rec.idleAssessment) checked.push('idle'); if (rec.driveAssessment) checked.push('lane drive'); if (rec.crankAssessment) checked.push('battery');
+    return { level, word, why: why.trim(), flags, mb, checked };
+  }
+  function renderCall() {
+    if (!current) return;
+    const c = theCall(current); current.call = { word: c.word, level: c.level, bid: c.mb ? c.mb.bid : null };
+    $('callCard').className = 'card callcard ' + c.level;
+    const w = $('callWord'); w.className = 'word ' + c.level; w.textContent = c.word;
+    $('callWho').textContent = [current.decoded ? current.decoded.label : (current.vin || ''), current.stock ? 'lane ' + current.stock : ''].filter(Boolean).join(' · ');
+    $('callWhy').textContent = c.why + ' Checked: ' + c.checked.join(', ') + (c.checked.includes('lane drive') ? '.' : '. Lane drive not done yet.');
+    const ul = $('flags'); ul.textContent = '';
+    for (const f of c.flags) { const li = document.createElement('li'); li.className = f.sev; li.textContent = f.title; if (f.detail) { const sp = document.createElement('span'); sp.textContent = f.detail; li.appendChild(sp); } ul.appendChild(li); }
+    show($('callBid'), !!c.mb);
+    if (c.mb) $('callBidAmt').textContent = c.mb.bid > 0 ? money(c.mb.bid) : 'None';
+    show($('callCard'));
+  }
+  function renderBid() {
+    if (!current) return;
+    const el = $('bidMath'); el.textContent = '';
+    const mb = maxBid(current);
+    const row = (k, v, cls) => { const a = document.createElement('span'); a.textContent = k; const b = document.createElement('span'); b.textContent = v; if (cls) { a.className = cls; b.className = cls; } el.append(a, b); };
+    if (!mb) { row('Enter the expected sale price to get a max bid.', ''); return; }
+    row('Expected sale price', money(mb.sale));
+    row('Estimated recon (this vehicle)', '− ' + money(mb.recon));
+    row('Minimum profit', '− ' + money(mb.profit));
+    if (mb.fees) row('Buyer fee + transport', '− ' + money(mb.fees));
+    row('Max bid', mb.bid > 0 ? money(mb.bid) : 'None', 'tot');
+  }
+  function lookupScout() {
+    const vin = current && current.vin;
+    if (vin) { try { navigator.clipboard.writeText(vin); toast('VIN copied. Paste it into SCOUT’s Check a truck, then bring back the expected sale price.'); } catch (e) {} }
+    window.open(SCOUT_URL, '_blank', 'noopener');
+  }
+
+  /* ---------- quick appraisal and next vehicle ---------- */
+  async function quick() {
+    if (!elm || busy) return;
+    $('doModules').checked = true;
+    const ok = await scan();
+    if (!ok || !current) return;
+    if (current.scan.engineRunning || current.demo) {
+      $('idleCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      await runIdle(15);
+    }
+    renderCall();
+    $('callCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function nextVehicle() {
+    if (busy) return;
+    if (current) { current.notes = $('notes').value.trim(); current.salePrice = +$('salePrice').value || null; saveHist(current); }
+    const lane = $('stock').value.trim();
+    current = null;
+    ['callCard', 'resultCard', 'idleCard', 'driveCard', 'sendCard', 'autoNote', 'idleResult', 'idleLive', 'driveResult', 'driveLive', 'crankLive', 'crankFindings'].forEach((id) => { const e = $(id); if (e) show(e, false); });
+    show($('driveBtn')); $('driveBtn').textContent = 'Start lane drive';
+    $('miles').value = ''; $('notes').value = ''; $('salePrice').value = ''; $('sendMsg').classList.add('hidden');
+    $('stock').value = /^\d+$/.test(lane) ? String(+lane + 1) : '';
+    err($('scanErr'), '');
+    if (transport && transport.name === 'Demo') { OBD.DEMO_TRUCK.demoRunning = false; OBD.DEMO_TRUCK.driveAt = 0; }
+    $('vehicleCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    toast(transport ? 'Ready. Move the scanner to the next vehicle and tap Quick appraisal.' : 'Ready for the next vehicle.');
+  }
+
+  /* ---------- lookups that waited for signal ---------- */
+  let retrying = false;
+  async function retryPending() {
+    if (retrying || !navigator.onLine) return;
+    retrying = true;
+    try {
+      const h = store.get(LS.hist, []);
+      for (const rec of h) {
+        if (rec.vin && rec.vin.length === 17 && (!rec.decoded || !rec.recalls)) {
+          const live = current && current.id === rec.id ? current : rec;
+          await decodeVin(live);
+        }
+      }
+    } finally { retrying = false; renderHist(); }
+  }
+
   /* ---------- report (Save PDF / Share) ---------- */
   function reportLines(rec) {
     const L = [];
     const a = rec.assessment, s = rec.scan;
-    L.push('<b>Acquisition scan: ' + esc(LEVEL_WORD[a.overall]) + '</b>' + (rec.stock ? ' \u00b7 Lane/run ' + esc(rec.stock) : ''));
+    const call = theCall(rec);
+    L.push('<b>' + esc(call.word.toUpperCase()) + '</b>' + (call.mb ? ' \u00b7 Max bid ' + esc(call.mb.bid > 0 ? money(call.mb.bid) : 'none') : '') + (rec.stock ? ' \u00b7 Lane/run ' + esc(rec.stock) : ''));
+    if (call.flags.length) L.push('<b>Red flags:</b><ul>' + call.flags.map((f) => '<li>' + esc(f.title) + (f.detail ? ' \u2014 ' + esc(f.detail) : '') + '</li>').join('') + '</ul>');
+    if (call.mb) L.push('Max bid math: sale ' + money(call.mb.sale) + ' \u2212 recon ' + money(call.mb.recon) + ' \u2212 profit ' + money(call.mb.profit) + (call.mb.fees ? ' \u2212 fees/transport ' + money(call.mb.fees) : '') + ' = ' + (call.mb.bid > 0 ? money(call.mb.bid) : 'none'));
+    L.push('<b>Scan health: ' + esc(LEVEL_WORD[a.overall]) + '</b>');
     L.push(esc(new Date(rec.at).toLocaleString()) + (rec.tech ? ' \u00b7 ' + esc(rec.tech) : ''));
     const info = [];
     if (rec.vin) info.push('VIN ' + esc(rec.vin));
@@ -538,7 +675,7 @@
   }
   async function share(rec) {
     rec = rec || current; if (!rec) return;
-    rec.notes = rec === current ? $('notes').value.trim() : rec.notes;
+    if (rec === current) { rec.notes = $('notes').value.trim(); rec.salePrice = +$('salePrice').value || null; }
     saveHist(rec);
     const title = 'Appraisal: ' + ((rec.decoded && rec.decoded.label) || rec.vin || 'vehicle') + (rec.stock ? ' (lane ' + rec.stock + ')' : '');
     const text = title + '\n\n' + shareText(rec);
@@ -561,6 +698,11 @@
     store.set(LS.hist, h.slice(0, 25));
     renderHist();
   }
+  function updateHist(rec) {
+    if (!rec) return;
+    const h = store.get(LS.hist, []); const i = h.findIndex((x) => x.id === rec.id);
+    if (i >= 0) { h[i] = rec; store.set(LS.hist, h); renderHist(); } else saveHist(rec);
+  }
   function renderHist() {
     const h = store.get(LS.hist, []);
     show($('histCard'), h.length > 0);
@@ -568,11 +710,12 @@
     for (const rec of h.slice(0, 10)) {
       const li = document.createElement('li');
       const left = document.createElement('span');
-      const dot = document.createElement('i'); dot.className = 'dot ' + rec.assessment.overall;
+      const dot = document.createElement('i'); dot.className = 'dot ' + ((rec.call && rec.call.level) || rec.assessment.overall);
       left.appendChild(dot);
       const label = (rec.decoded && rec.decoded.label) || rec.vin || 'No VIN';
-      const est = rec.estimate && rec.estimate.lines && rec.estimate.lines.length ? ' \u00b7 recon ~$' + estTotal(rec).toLocaleString() : '';
-      left.appendChild(document.createTextNode(label + (rec.stock ? ' \u00b7 lane ' + rec.stock : '') + est + ' \u00b7 ' + new Date(rec.at).toLocaleDateString() + (rec.demo ? ' (demo)' : '')));
+      const est = rec.call ? ' \u00b7 ' + rec.call.word + (rec.call.bid != null ? ' \u00b7 max ' + (rec.call.bid > 0 ? money(rec.call.bid) : 'none') : '') : (rec.estimate && rec.estimate.lines && rec.estimate.lines.length ? ' \u00b7 recon ~$' + estTotal(rec).toLocaleString() : '');
+      const pend = rec.vin && !rec.decoded && !rec.demo ? ' \u00b7 lookup waiting for signal' : '';
+      left.appendChild(document.createTextNode(label + (rec.stock ? ' \u00b7 lane ' + rec.stock : '') + est + ' \u00b7 ' + new Date(rec.at).toLocaleDateString() + (rec.demo ? ' (demo)' : '') + pend));
       li.appendChild(left);
       const b = document.createElement('button'); b.className = 'btn'; b.style.minHeight = '40px'; b.textContent = 'Share'; b.onclick = () => share(rec); li.appendChild(b);
       ul.appendChild(li);
@@ -581,12 +724,13 @@
 
   /* ---------- settings ---------- */
   function openSettings() {
-    $('techName').value = settings.name;
+    $('techName').value = settings.name; $('minProfit').value = settings.minProfit; $('feesTransport').value = settings.fees || '';
     $('settings').showModal();
   }
   function saveSettings() {
-    settings = { name: $('techName').value.trim() };
+    settings = { name: $('techName').value.trim(), minProfit: $('minProfit').value === '' ? 2500 : +$('minProfit').value, fees: +$('feesTransport').value || 0 };
     store.set(LS.settings, settings);
+    if (current) { renderBid(); renderCall(); }
     updateSetup();
   }
   function updateSetup() {
@@ -606,14 +750,21 @@
   $('logClear').onclick = () => { clog.length = 0; $('connLog').textContent = ''; };
   $('disconnectBtn').onclick = disconnect;
   $('scanBtn').onclick = scan;
-  $('idleBtn').onclick = runIdle;
+  $('quickBtn').onclick = quick;
+  $('nextBtn').onclick = nextVehicle; $('nextTop').onclick = nextVehicle;
+  $('scoutBtn').onclick = lookupScout;
+  $('salePrice').addEventListener('input', () => { if (current) { current.salePrice = +$('salePrice').value || null; renderBid(); renderCall(); } });
+  $('salePrice').addEventListener('change', () => { if (current) updateHist(current); });
+  window.addEventListener('online', retryPending);
+  setInterval(retryPending, 60000);
+  $('idleBtn').onclick = () => runIdle(30);
   $('crankBtn').onclick = runCrank;
   $('driveBtn').onclick = startDrive;
   $('driveEnd').onclick = () => { if (driveAbort) driveAbort.abort(); };
   $('estAdd').onclick = addLine;
   $('shareBtn').onclick = () => share(current);
   $('printBtn').onclick = () => { if (current) { current.notes = $('notes').value.trim(); saveHist(current); } window.print(); };
-  $('miles').addEventListener('change', () => { if (current) { current.miles = +$('miles').value || null; current.milesSource = 'dash'; } });
+  $('miles').addEventListener('change', () => { if (current) { current.miles = +$('miles').value || null; current.milesSource = 'dash'; renderScan(); renderCall(); updateHist(current); } });
   $('stock').addEventListener('change', () => { if (current) { current.stock = $('stock').value.trim().toUpperCase(); $('stock').value = current.stock; saveHist(); } });
   $('settingsBtn').onclick = openSettings;
   $('settings').addEventListener('close', saveSettings);
@@ -622,6 +773,6 @@
   const sm = supportMsg(); if (sm) err($('connectErr'), sm);
   if ('serial' in navigator && !('bluetooth' in navigator)) show($('bleBtn'), false);
   if (!('bluetooth' in navigator)) show($('bleBtn'), false);
-  setPill(); updateSetup(); renderHist();
+  setPill(); updateSetup(); renderHist(); setTimeout(retryPending, 3000);
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

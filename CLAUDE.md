@@ -6,7 +6,15 @@ This app is a copy of **Check-In Scan** (littlecountrycars/lcc-check-in-scan), m
 
 Auction use differs from Dylan's check-ins: limited minutes per vehicle, a ~300 m lane drive topping out around 45 mph, no stock # (a lane/run # instead), many vehicles back to back, poor signal. The test drive is a "lane drive" (firm launch to 35-45 mph, firm stop); torque converter shudder can't be checked without a steady 40+ mph. Estimated recon is a number to factor into the bid.
 
-- Repo: golittle/lcc-aquisition-scan. Live at https://golittle.github.io/lcc-aquisition-scan/ via GitHub Pages from `main` (root).
+Auction features (Nov 9, 2026):
+- **Quick appraisal**: scan + freeze frame + Ford modules + 15-second idle (if running), then the call.
+- **The call**: Bid / Caution / Walk away from red flags (`redFlags()` in app.js). Hard flags = walk away: codes cleared recently with 2+ self-tests unfinished, odometer mismatch (computer vs typed dash > 1,000 mi), transmission codes, airbag faults, active transmission-module faults, slipping/shudder on the lane drive, or max bid at or below $0.
+- **Max bid** = expected sale price (typed, from SCOUT's expected sale price) − this vehicle's estimated recon − minimum profit (setting, default $2,500 per Jonathan) − buyer fee + transport (setting, default $0). Don't use SCOUT's max bid as the input: SCOUT already subtracts its own typical recon and gross.
+- **SCOUT**: LCC's SCOUT Buy Guide is a private claude.ai artifact (https://claude.ai/artifact/6bBGxC5drP42KJE9sGJYgZ). "Look up in SCOUT" copies the VIN and opens it. Never copy SCOUT's sales data, costs or gross into this public repo.
+- **Next vehicle**: saves, clears, keeps the scanner connected, bumps a numeric lane/run # by one.
+- **No signal**: VIN decode and recall lookups retry for saved appraisals when the phone comes back online (and every minute).
+
+- Repo: littlecountrycars/lcc-aquisition-scan (moved from golittle Nov 9, 2026). Live at https://littlecountrycars.github.io/lcc-aquisition-scan/ via GitHub Pages from `main` (root).
 - Never change littlecountrycars/lcc-check-in-scan from work on this app.
 - `HANDOFF.md` is the history of the original Check-In Scan app (decisions, troubleshooting). Read it for background; its addresses and owner refer to Check-In Scan, not this app.
 
