@@ -764,7 +764,7 @@
   function assessDrive(r, before, after) {
     const S = r.samples.filter((s) => s.mph != null);
     const F = []; const add = (level, title, detail, parts) => F.push({ level, title, detail: detail || '', parts });
-    if (S.length < 20) return { overall: 'watch', findings: [{ level: 'watch', title: 'Test drive too short to judge', detail: 'Drive at least 10 minutes, town and highway.' }], stats: null };
+    if (S.length < 12 || Math.max(...S.map((s) => s.mph)) < 15) return { overall: 'watch', findings: [{ level: 'watch', title: 'Drive too short to judge', detail: 'Accelerate firmly from a stop to at least 30 mph so it shifts a couple of times.' }], stats: null };
     let miles = 0, maxMph = 0, maxF = null, flares = 0, harsh = 0;
     for (let i = 1; i < S.length; i++) {
       const a = S[i - 1], b = S[i], dt = (b.t - a.t) / 3600000;
@@ -794,7 +794,7 @@
       if (cruiseWobble > 60) add('problem', 'RPM wavering at steady highway speed', 'Typical of torque converter shudder or slip. Did you feel a rumble like driving over rumble strips?', ['transmission fluid']);
       else if (cruiseWobble > 35) add('watch', 'Slight RPM wander at cruise', 'Recheck with cruise control on a flat road.');
       else add('good', 'Steady at highway speed', '');
-    } else add('info', 'No steady cruise above 40 mph recorded', 'Hold a steady 45–65 mph for 30 seconds to check the torque converter.');
+    } else add('info', 'Torque converter shudder not checked', 'Needs a steady 40+ mph, which a short lane won\u2019t allow. On light throttle at 30\u201340 mph, feel for a rumble like driving over rumble strips.');
     if (maxF != null) {
       if (maxF > 230) add('problem', 'Ran hot: ' + maxF + '°F', 'Check coolant, fan, thermostat and radiator.', ['thermostat', 'coolant']);
       else if (maxF < 180 && minutes >= 10) add('watch', 'Never fully warmed up: ' + maxF + '°F max', 'Thermostat may be stuck open.', ['thermostat']);

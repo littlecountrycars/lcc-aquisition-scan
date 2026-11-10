@@ -1,12 +1,7 @@
-/* LCC Acquisition Scan (copied from Check-In Scan): screens + monday.com Inventory Recon hookup */
+/* LCC Acquisition Scan (copied from Check-In Scan): screens for appraising vehicles at auction. No monday.com: results stay on the phone or get shared by the user. */
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
-  const BOARD = '18410463373';           // Inventory Recon (new)
-  const SUB_BOARD = '18410479838';       // its subitems board
-  const COL = { stock: 'text_mm2txesd', stage: 'color_mm2tny8k', location: 'color_mm2yxmdw', estimate: 'numeric_mm8x1pk1' };
-  const SUB = { status: 'color_mm2t1egg', notes: 'long_text_mm2t42xe', parts: 'text_mm2tdxxp' };
-  const JONATHAN = '101601751';
   const LEVEL_WORD = { good: 'Good to go', watch: 'Needs a look', problem: 'Needs work' };
   const LS = { settings: 'lccAcq.settings', hist: 'lccAcq.history', port: 'lccAcq.lastTransport' };
 
@@ -14,8 +9,8 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
   };
-  let settings = Object.assign({ name: '', token: '', fill: true }, store.get(LS.settings, {}));
-  let elm = null, transport = null, current = null, match = null, mode = 'match', busy = false;
+  let settings = Object.assign({ name: '' }, store.get(LS.settings, {}));
+  let elm = null, transport = null, current = null, busy = false;
 
   /* ---------- helpers ---------- */
   const show = (el, on = true) => el.classList.toggle('hidden', !on);
@@ -156,7 +151,7 @@
       store.set(LS.port, kind);
       connLog('Connected');
       $('connectMsg').textContent = kind === 'demo'
-        ? 'Demo truck connected. Scans here are practice and won\u2019t post to monday.com.'
+        ? 'Demo truck connected. Practice appraisals are marked (demo) in your history.'
         : 'Scanner connected. Enter the dash mileage and tap Scan truck.';
       setPill();
     } catch (e) {
@@ -219,14 +214,13 @@
       const a = buildAssessment(r, typed);
       current = {
         id: Date.now().toString(36), at: r.at, demo: transport.name === 'Demo', tech: settings.name || '',
-        vin: r.vin, stock: ($('stock').value.trim().toUpperCase()) || OBD.stockFromVin(r.vin) || '', miles,
+        vin: r.vin, stock: $('stock').value.trim().toUpperCase(), miles,
         scan: r, assessment: a, idle: null, idleAssessment: null, decoded: null, sent: null
       };
-      if (!$('stock').value.trim() && current.stock) $('stock').value = current.stock;
       if (!typed && miles) $('miles').value = miles;
       current.milesSource = typed ? 'dash' : (miles ? 'truck' : null);
       $('autoNote').textContent = [
-        r.vin ? 'VIN ' + r.vin + ' read from the truck.' : 'Couldn\u2019t read the VIN from this truck. Type the Stock # (last 6 of the VIN).',
+        r.vin ? 'VIN ' + r.vin + ' read from the vehicle.' : 'Couldn\u2019t read the VIN from this vehicle. Note it from the dash or door jamb.',
         typed ? '' : (miles ? 'Miles read from the truck\u2019s computer. Glance at the dash; if it\u2019s different, type the dash number.' : 'This truck doesn\u2019t report mileage. Type it from the dash.')
       ].join(' ');
       show($('autoNote'));
@@ -239,7 +233,7 @@
       show($('sendCard'));
       current.estimate = { lines: [], removed: [] };
       renderEstimate();
-      lookupMatch();
+      $('notes').value = '';
     } catch (e) {
       const msg = e && e.message === 'NO_ECU'
         ? 'The scanner is connected but the truck didn\u2019t answer. Turn the key to ON or start the truck, wait 5 seconds, and tap Scan again.'
@@ -279,7 +273,7 @@
     const bt = bigTicket(current);
     if (bt.any) {
       const n = document.createElement('div'); n.className = 'notice err';
-      n.textContent = 'Likely over $1,000' + (bt.codes.length ? ' (' + bt.codes.join(', ') + ')' : '') + '. Per the recon SOP, Jonathan decides fix, wholesale or sell as-is before any work starts. Sending this scan flags him in monday.com.';
+      n.textContent = 'Likely over $1,000' + (bt.codes.length ? ' (' + bt.codes.join(', ') + ')' : '') + '. Factor it into your bid or pass.';
       extra.appendChild(n);
     }
     if (current.vin) {
@@ -302,7 +296,7 @@
       const eng = [v.DisplacementL ? (+v.DisplacementL).toFixed(1) + 'L' : '', v.EngineCylinders ? 'V' + v.EngineCylinders : '', /diesel/i.test(v.FuelTypePrimary || '') ? 'diesel' : ''].filter(Boolean).join(' ');
       rec.decoded = { year: v.ModelYear, make: v.Make, model: v.Model, trim: v.Trim || v.Series || '', engine: eng, drive: v.DriveType || '',
         label: [v.ModelYear, titleCase(v.Make), v.Model, v.Trim].filter(Boolean).join(' ') + (eng ? ' \u00b7 ' + eng : '') };
-      if (rec === current) { renderScan(); suggestName(); renderEstimate(); }
+      if (rec === current) { renderScan(); renderEstimate(); }
       saveHist();
       try {
         const rr = await fetch('https://api.nhtsa.gov/recalls/recallsByVehicle?make=' + encodeURIComponent(v.Make) + '&model=' + encodeURIComponent(v.Model) + '&modelYear=' + v.ModelYear);
@@ -478,7 +472,7 @@
     const t = estTotal(current);
     $('estTotal').textContent = '$' + t.toLocaleString();
     const over = bigTicket(current).any;
-    $('estWarn').textContent = over ? 'Over $1,000 (or a likely big-ticket repair). Jonathan decides fix, wholesale or sell as-is before any work starts; sending flags him.' : '';
+    $('estWarn').textContent = over ? 'Over $1,000 in likely recon, or a big-ticket repair. Factor it into your bid or pass.' : '';
     show($('estWarn'), over);
   }
   function addLine() {
@@ -489,95 +483,11 @@
     renderEstimate(); saveHist();
   }
 
-  /* ---------- monday.com ---------- */
-  async function mq(query, variables) {
-    if (!settings.token) throw new Error('NO_TOKEN');
-    const res = await fetch('https://api.monday.com/v2', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: settings.token },
-      body: JSON.stringify({ query, variables: variables || {} })
-    });
-    let j = null; try { j = await res.json(); } catch (e) {}
-    if (res.status === 401 || res.status === 403) throw new Error('monday.com didn\u2019t accept the token. Check it in Settings.');
-    if (!res.ok || !j) throw new Error('monday.com error (' + res.status + ')');
-    if (j.errors && j.errors.length) throw new Error(j.errors.map((e) => e.message).join('; '));
-    if (j.error_message) throw new Error(j.error_message);
-    return j.data;
-  }
-  const ITEM_FIELDS = 'id name url column_values(ids:["' + COL.stock + '"]){ id text } subitems { id name column_values(ids:["' + SUB.status + '","' + SUB.notes + '","' + SUB.parts + '"]){ id text } }';
-
-  async function findByStock(stock) {
-    const d = await mq('query($b:ID!,$v:[String]!){ items_page_by_column_values(board_id:$b, limit:5, columns:[{column_id:"' + COL.stock + '", column_values:$v}]){ items{ ' + ITEM_FIELDS + ' } } }',
-      { b: BOARD, v: [stock] });
-    return (d.items_page_by_column_values && d.items_page_by_column_values.items) || [];
-  }
-  async function searchByName(q) {
-    const d = await mq('query($b:[ID!]){ boards(ids:$b){ items_page(limit:10, query_params:{rules:[{column_id:"name", compare_value:["' + q.replace(/["\\]/g, '') + '"], operator:contains_text}]}){ items{ ' + ITEM_FIELDS + ' } } } }', { b: [BOARD] });
-    return (d.boards && d.boards[0] && d.boards[0].items_page.items) || [];
-  }
-
-  async function lookupMatch() {
-    const box = $('matchBox'); match = null; mode = 'match';
-    show($('newBox'), false); show($('searchBox'), false);
-    $('fillSubs').checked = settings.fill;
-    $('sendBtn').disabled = true;
-    const stock = current.stock;
-    if (current.demo) { box.innerHTML = '<span><b>Practice scan.</b> Demo trucks don\u2019t post to monday.com. Connect the real scanner to send.</span>'; $('sendBtn').textContent = 'Send to monday.com'; return; }
-    if (!settings.token) { box.innerHTML = '<span>Add your monday.com token (gear at the top) to send this scan to Inventory Recon.</span>'; return; }
-    if (!stock) { box.innerHTML = '<span>No VIN came back, so there\u2019s no stock # to match. Type the stock # above, or search the board.</span>'; show($('searchBox')); return; }
-    box.innerHTML = '<span class="muted small">Looking up stock # ' + esc(stock) + ' on Inventory Recon\u2026</span>';
-    try {
-      const items = await findByStock(stock);
-      if (items.length === 1) setMatch(items[0], 'Matched by stock #');
-      else if (items.length > 1) {
-        box.innerHTML = '<span><b>' + items.length + ' vehicles</b> on the board have stock # ' + esc(stock) + '. Pick one:</span>';
-        show($('searchBox')); listResults(items);
-      } else {
-        box.innerHTML = '<span>No vehicle with stock # <b>' + esc(stock) + '</b> on Inventory Recon yet. Send will add it as a new vehicle, or search for it if it\u2019s there under another stock #.</span>';
-        mode = 'new'; show($('newBox')); show($('searchBox')); suggestName();
-        $('sendBtn').disabled = false; $('sendBtn').textContent = 'Add vehicle & send';
-      }
-    } catch (e) {
-      box.innerHTML = '';
-      const s = document.createElement('span'); s.textContent = e.message === 'NO_TOKEN' ? 'Add your monday.com token in Settings.' : 'Couldn\u2019t reach monday.com: ' + e.message + '. The scan is saved on this phone; send it later from Recent scans.';
-      box.appendChild(s);
-    }
-  }
-  function setMatch(item, how) {
-    match = item; mode = 'match';
-    const box = $('matchBox'); box.textContent = '';
-    const a = document.createElement('span'); a.className = 'muted small'; a.textContent = how;
-    const link = document.createElement('a'); link.href = item.url; link.target = '_blank'; link.rel = 'noopener'; link.textContent = item.name;
-    const stockTxt = (item.column_values.find((c) => c.id === COL.stock) || {}).text;
-    const b = document.createElement('span'); b.className = 'muted small'; b.textContent = 'Stock # ' + (stockTxt || '(blank, will be set to ' + current.stock + ')');
-    box.append(a, link, b);
-    show($('newBox'), false); show($('searchBox'), false);
-    $('sendBtn').disabled = false; $('sendBtn').textContent = 'Send to monday.com';
-  }
-  function suggestName() {
-    if (mode !== 'new' || $('newName').value) return;
-    const d = current.decoded; const miles = current.miles;
-    const parts = d ? [d.year, (d.model || '').replace(/-/g, ''), d.trim] : [];
-    if (miles) parts.push(Math.round(miles / 1000) + 'k');
-    $('newName').value = parts.filter(Boolean).join(' ');
-    $('newName').placeholder = 'Year model trim color miles';
-  }
-  function listResults(items) {
-    const ul = $('searchResults'); ul.textContent = '';
-    if (!items.length) { const li = document.createElement('li'); li.textContent = 'Nothing found.'; ul.appendChild(li); return; }
-    for (const it of items) {
-      const li = document.createElement('li');
-      const s = document.createElement('span'); s.textContent = it.name;
-      const b = document.createElement('button'); b.className = 'btn'; b.textContent = 'Use'; b.style.minHeight = '40px';
-      b.onclick = () => setMatch(it, 'Picked from search');
-      li.append(s, b); ul.appendChild(li);
-    }
-  }
-
+  /* ---------- report (Save PDF / Share) ---------- */
   function reportLines(rec) {
     const L = [];
     const a = rec.assessment, s = rec.scan;
-    L.push('<b>OBD2 acquisition scan: ' + esc(LEVEL_WORD[a.overall]) + '</b>');
+    L.push('<b>Acquisition scan: ' + esc(LEVEL_WORD[a.overall]) + '</b>' + (rec.stock ? ' \u00b7 Lane/run ' + esc(rec.stock) : ''));
     L.push(esc(new Date(rec.at).toLocaleString()) + (rec.tech ? ' \u00b7 ' + esc(rec.tech) : ''));
     const info = [];
     if (rec.vin) info.push('VIN ' + esc(rec.vin));
@@ -586,16 +496,16 @@
     if (info.length) L.push(info.join(' \u00b7 '));
     const tag = { problem: 'PROBLEM', watch: 'WATCH', good: 'OK', info: 'NOTE' };
     const bt = bigTicket(rec);
-    if (bt.any) L.push('<b>OVER $1,000' + (bt.codes.length ? ' (' + esc(bt.codes.join(', ')) + ')' : '') + ': Jonathan decides fix, wholesale or sell as-is before work starts.</b>');
+    if (bt.any) L.push('<b>LIKELY OVER $1,000 IN RECON' + (bt.codes.length ? ' (' + esc(bt.codes.join(', ')) + ')' : '') + '. Factor into bid or pass.</b>');
     L.push('<ul>' + a.findings.map((f) => '<li><b>' + tag[f.level] + ':</b> ' + esc(f.title) + (f.detail ? ' \u2014 ' + esc(f.detail) : '') + (f.code ? fixHtml(f.code, rec) : f.moduleCode ? fixHtml(f.moduleCode, rec, f.module) : '') + '</li>').join('') + '</ul>');
     if (rec.crankAssessment) L.push('<b>Cranking test:</b><ul>' + rec.crankAssessment.findings.map((f) => '<li>' + tag[f.level] + ': ' + esc(f.title) + (f.parts ? partsHtml(f.parts, rec) : '') + '</li>').join('') + '</ul>');
     if (rec.driveAssessment) {
       const da = rec.driveAssessment;
-      L.push('<b>Test drive: ' + esc(LEVEL_WORD[da.overall]) + '</b>' + (da.stats ? ' (' + da.stats.minutes + ' min, ' + da.stats.miles + ' mi, top ' + da.stats.maxMph + ' mph)' : ''));
+      L.push('<b>Lane drive: ' + esc(LEVEL_WORD[da.overall]) + '</b>' + (da.stats ? ' (' + da.stats.minutes + ' min, ' + da.stats.miles + ' mi, top ' + da.stats.maxMph + ' mph)' : ''));
       L.push('<ul>' + da.findings.map((f) => '<li><b>' + tag[f.level] + ':</b> ' + esc(f.title) + (f.detail ? ' \u2014 ' + esc(f.detail) : '') + (f.code ? fixHtml(f.code, rec) : f.parts ? partsHtml(f.parts, rec) : '') + '</li>').join('') + '</ul>');
-    } else L.push('Test drive not recorded in the app.');
+    } else L.push('Lane drive not recorded.');
     if (rec.estimate && rec.estimate.lines.length) {
-      L.push('<b>Day-1 estimate: $' + estTotal(rec).toLocaleString() + '</b><ul>' + rec.estimate.lines.map((l) => '<li>' + esc(l.label) + ': $' + (+l.amount || 0).toLocaleString() + '</li>').join('') + '</ul>');
+      L.push('<b>Estimated recon: $' + estTotal(rec).toLocaleString() + '</b><ul>' + rec.estimate.lines.map((l) => '<li>' + esc(l.label) + ': $' + (+l.amount || 0).toLocaleString() + '</li>').join('') + '</ul>');
     }
     if (rec.idleAssessment) {
       const ia = rec.idleAssessment;
@@ -621,94 +531,25 @@
     if (fx.parts.length) h += '<br><i>Parts:</i> ' + fx.parts.map((p) => esc(p) + ' (' + OBD.partLinks(p, vehicleQuery(rec), rec.vin).map((l) => '<a href="' + esc(l.url) + '">' + l.name + '</a>').join(' \u00b7 ') + ')').join('; ');
     return h;
   }
-  async function send(rec, opts = {}) {
-    rec = rec || current;
-    if (!rec || rec.demo) return;
-    const msg = $('sendMsg'); msg.className = 'notice'; msg.textContent = 'Sending\u2026'; show(msg);
-    $('sendBtn').disabled = true;
+  function shareText(rec) {
+    const html = reportLines(rec).replace(/<br\s*\/?>(?!<ul>)/g, '\n').replace(/<li>/g, '\n\u2022 ').replace(/<\/(ul|li)>/g, '');
+    const t = document.createElement('div'); t.innerHTML = html.replace(/<a [^>]*href="([^"]+)"[^>]*>([^<]*)<\/a>/g, '$2 ($1)');
+    return t.textContent.replace(/\n{3,}/g, '\n\n').trim();
+  }
+  async function share(rec) {
+    rec = rec || current; if (!rec) return;
+    rec.notes = rec === current ? $('notes').value.trim() : rec.notes;
+    saveHist(rec);
+    const title = 'Appraisal: ' + ((rec.decoded && rec.decoded.label) || rec.vin || 'vehicle') + (rec.stock ? ' (lane ' + rec.stock + ')' : '');
+    const text = title + '\n\n' + shareText(rec);
+    const msg = $('sendMsg');
     try {
-      rec.notes = opts.fromHistory ? rec.notes : $('notes').value.trim();
-      let item = opts.item || (rec === current ? match : null);
-      if (!item) {
-        const found = rec.stock ? await findByStock(rec.stock) : [];
-        if (found.length === 1) item = found[0];
-        else if (found.length > 1) throw new Error('More than one vehicle has stock # ' + rec.stock + '. Open the scan and pick one.');
-      }
-      if (!item) {
-        const name = (rec === current ? $('newName').value.trim() : '') || [rec.decoded && rec.decoded.year, rec.decoded && rec.decoded.model, rec.stock].filter(Boolean).join(' ') || 'Stock ' + rec.stock;
-        const cv = {}; cv[COL.stock] = rec.stock; cv[COL.stage] = { label: 'Initial Inspection' }; cv[COL.location] = { label: 'On Site' };
-        const d = await mq('mutation($b:ID!,$n:String!,$cv:JSON!){ create_item(board_id:$b, item_name:$n, column_values:$cv){ ' + ITEM_FIELDS + ' } }',
-          { b: BOARD, n: name, cv: JSON.stringify(cv) });
-        item = d.create_item;
-      } else {
-        const stockTxt = (item.column_values.find((c) => c.id === COL.stock) || {}).text;
-        if (!stockTxt && rec.stock) {
-          const cv = {}; cv[COL.stock] = rec.stock;
-          await mq('mutation($b:ID!,$i:ID!,$cv:JSON!){ change_multiple_column_values(board_id:$b, item_id:$i, column_values:$cv){ id } }', { b: BOARD, i: item.id, cv: JSON.stringify(cv) });
-        }
-      }
-      await mq('mutation($i:ID!,$body:String!){ create_update(item_id:$i, body:$body){ id } }', { i: item.id, body: reportLines(rec) });
-      if (rec.estimate && rec.estimate.lines.length) {
-        const cv = {}; cv[COL.estimate] = String(estTotal(rec));
-        await mq('mutation($b:ID!,$i:ID!,$cv:JSON!){ change_multiple_column_values(board_id:$b, item_id:$i, column_values:$cv){ id } }', { b: BOARD, i: item.id, cv: JSON.stringify(cv) });
-      }
-
-      const fill = opts.fromHistory ? settings.fill : $('fillSubs').checked;
-      let filled = 0;
-      if (fill && item.subitems && item.subitems.length) {
-        const day = new Date(rec.at).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' });
-        const findSub = (re) => item.subitems.find((s) => re.test(s.name));
-        const cel = findSub(/^walk-around:\s*check engine/i);
-        const bat = findSub(/^walk-around:\s*battery/i);
-        const s = rec.scan, a = rec.assessment;
-        const celFindings = a.findings.filter((f) => /^[PCBU][0-9A-F]{4}|Check engine|cleared recently|self-tests not finished/i.test(f.title) && f.level !== 'good');
-        const celOk = !(s.status && s.status.mil) && !celFindings.some((f) => f.level === 'problem') && !(s.stored || []).length && !(s.pending || []).length;
-        const updates = [];
-        if (cel) {
-          const note = 'Scan ' + day + ': ' + (s.status && s.status.mil ? 'light ON. ' : 'light off. ') +
-            ((s.stored || []).length ? 'Stored ' + s.stored.join(', ') + '. ' : '') + ((s.pending || []).length ? 'Pending ' + s.pending.join(', ') + '. ' : '') +
-            (s.distSinceClearMi != null ? s.distSinceClearMi + ' mi since codes cleared.' : '');
-          const codes = codesOf(rec);
-          const fixes = codes.map((c) => c + ': ' + OBD.fixFor(c).fix).join('\n');
-          const parts = [...new Set(codes.flatMap((c) => OBD.fixFor(c).parts))].join(', ');
-          updates.push([cel, celOk ? 'Done' : 'Needs Attention', (note.trim() + (fixes ? '\n' + fixes : '')), parts]);
-        }
-        const batF = a.findings.find((f) => /Battery|charging|Overcharging/i.test(f.title));
-        if (bat && batF) updates.push([bat, batF.level === 'good' ? 'Done' : 'Needs Attention', 'Scan ' + day + ': ' + batF.title + '.']);
-        for (const [sub, label, note, parts] of updates) {
-          const old = (sub.column_values.find((c) => c.id === SUB.notes) || {}).text || '';
-          const cv = {}; cv[SUB.status] = { label }; cv[SUB.notes] = { text: old ? old + '\n' + note : note };
-          if (parts) {
-            const oldParts = (sub.column_values.find((c) => c.id === SUB.parts) || {}).text || '';
-            cv[SUB.parts] = oldParts ? oldParts + ', ' + parts : parts;
-          }
-          await mq('mutation($b:ID!,$i:ID!,$cv:JSON!){ change_multiple_column_values(board_id:$b, item_id:$i, column_values:$cv){ id } }', { b: SUB_BOARD, i: sub.id, cv: JSON.stringify(cv) });
-          filled++;
-        }
-      }
-      const bt = bigTicket(rec);
-      if (bt.any && !(rec.sent && rec.sent.flagged)) {
-        try {
-          await mq('mutation($u:ID!,$t:ID!,$x:String!){ create_notification(user_id:$u, target_id:$t, target_type:Project, text:$x){ text } }',
-            { u: JONATHAN, t: item.id, x: 'Acquisition scan on ' + item.name + ': Day-1 estimate $' + bt.total.toLocaleString() + (bt.codes.length ? ' (' + bt.codes.join(', ') + ')' : '') + '. Fix, wholesale or sell as-is?' });
-          rec.flagged = true;
-        } catch (e) { /* notification is a bonus; the update already carries the flag */ }
-      }
-      rec.sent = { itemId: item.id, url: item.url, name: item.name, at: new Date().toISOString(), flagged: !!rec.flagged };
-      saveHist(rec);
-      msg.className = 'notice ok'; msg.textContent = '';
-      const t = document.createElement('span'); t.textContent = 'Sent to ' + item.name + (filled ? ' and filled in ' + filled + ' walk-around item' + (filled > 1 ? 's' : '') : '') + '. ';
-      const l = document.createElement('a'); l.href = item.url; l.target = '_blank'; l.rel = 'noopener'; l.textContent = 'Open in monday.com';
-      msg.append(t, l);
-      if (rec === current) setMatch(item, 'Sent');
-      $('sendBtn').textContent = 'Send again';
+      if (navigator.share) { await navigator.share({ title, text }); return; }
+      await navigator.clipboard.writeText(text);
+      msg.className = 'notice ok'; msg.textContent = 'Summary copied. Paste it into a text or email.'; show(msg);
     } catch (e) {
-      msg.className = 'notice err';
-      msg.textContent = e.message === 'NO_TOKEN' ? 'Add your monday.com token in Settings (gear at the top).' : 'Not sent: ' + e.message + '. The scan is saved on this phone; try again from Recent scans.';
-      saveHist(rec);
-    } finally {
-      $('sendBtn').disabled = false;
-      renderHist();
+      if (e && e.name === 'AbortError') return;
+      msg.className = 'notice err'; msg.textContent = 'Couldn\u2019t share. Use Save PDF instead.'; show(msg);
     }
   }
 
@@ -729,40 +570,27 @@
       const left = document.createElement('span');
       const dot = document.createElement('i'); dot.className = 'dot ' + rec.assessment.overall;
       left.appendChild(dot);
-      left.appendChild(document.createTextNode((rec.sent ? rec.sent.name : (rec.stock || rec.vin || 'No VIN')) + ' \u00b7 ' + new Date(rec.at).toLocaleDateString() + (rec.demo ? ' (demo)' : '')));
+      const label = (rec.decoded && rec.decoded.label) || rec.vin || 'No VIN';
+      const est = rec.estimate && rec.estimate.lines && rec.estimate.lines.length ? ' \u00b7 recon ~$' + estTotal(rec).toLocaleString() : '';
+      left.appendChild(document.createTextNode(label + (rec.stock ? ' \u00b7 lane ' + rec.stock : '') + est + ' \u00b7 ' + new Date(rec.at).toLocaleDateString() + (rec.demo ? ' (demo)' : '')));
       li.appendChild(left);
-      if (rec.sent) { const a = document.createElement('a'); a.href = rec.sent.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Open'; a.style.color = 'inherit'; li.appendChild(a); }
-      else if (!rec.demo) { const b = document.createElement('button'); b.className = 'btn'; b.style.minHeight = '40px'; b.textContent = 'Send'; b.onclick = () => send(rec, { fromHistory: true }); li.appendChild(b); }
+      const b = document.createElement('button'); b.className = 'btn'; b.style.minHeight = '40px'; b.textContent = 'Share'; b.onclick = () => share(rec); li.appendChild(b);
       ul.appendChild(li);
     }
   }
 
   /* ---------- settings ---------- */
   function openSettings() {
-    $('techName').value = settings.name; $('token').value = settings.token; $('fillDefault').checked = settings.fill;
-    $('testMsg').textContent = '';
+    $('techName').value = settings.name;
     $('settings').showModal();
   }
   function saveSettings() {
-    settings = { name: $('techName').value.trim(), token: $('token').value.trim(), fill: $('fillDefault').checked };
+    settings = { name: $('techName').value.trim() };
     store.set(LS.settings, settings);
     updateSetup();
-    if (current && !current.sent) lookupMatch();
-  }
-  async function testToken() {
-    const prev = settings.token; settings.token = $('token').value.trim();
-    $('testMsg').textContent = 'Checking\u2026';
-    try {
-      const d = await mq('query($b:[ID!]){ me { name } boards(ids:$b){ name } }', { b: [BOARD] });
-      $('testMsg').textContent = 'Works: signed in as ' + d.me.name + (d.boards && d.boards[0] ? ', can see ' + d.boards[0].name : ', but can\u2019t see Inventory Recon');
-      if (!$('techName').value && d.me.name) $('techName').value = d.me.name.split(' ')[0];
-    } catch (e) { $('testMsg').textContent = e.message === 'NO_TOKEN' ? 'Paste a token first.' : e.message; settings.token = prev; return; }
-    settings.token = prev;
   }
   function updateSetup() {
-    const needToken = !settings.token;
-    show($('setupCard'), needToken || store.get(LS.port, null) == null);
-    $('setupToken').style.opacity = needToken ? 1 : .5;
+    show($('setupCard'), store.get(LS.port, null) == null);
   }
 
   /* ---------- wire up ---------- */
@@ -783,18 +611,13 @@
   $('driveBtn').onclick = startDrive;
   $('driveEnd').onclick = () => { if (driveAbort) driveAbort.abort(); };
   $('estAdd').onclick = addLine;
-  $('sendBtn').onclick = () => send(current, mode === 'match' && match ? { item: match } : {});
-  $('printBtn').onclick = () => window.print();
-  $('searchBtn').onclick = async () => {
-    const q = $('searchQ').value.trim(); if (!q) return;
-    try { listResults(await searchByName(q)); } catch (e) { listResults([]); }
-  };
+  $('shareBtn').onclick = () => share(current);
+  $('printBtn').onclick = () => { if (current) { current.notes = $('notes').value.trim(); saveHist(current); } window.print(); };
   $('miles').addEventListener('change', () => { if (current) { current.miles = +$('miles').value || null; current.milesSource = 'dash'; } });
-  $('stock').addEventListener('change', () => { if (current) { current.stock = $('stock').value.trim().toUpperCase(); $('stock').value = current.stock; lookupMatch(); } });
+  $('stock').addEventListener('change', () => { if (current) { current.stock = $('stock').value.trim().toUpperCase(); $('stock').value = current.stock; saveHist(); } });
   $('settingsBtn').onclick = openSettings;
   $('settings').addEventListener('close', saveSettings);
-  $('testBtn').onclick = testToken;
-  $('clearHist').onclick = () => { if (confirm('Delete the scans saved on this phone? Anything already sent stays in monday.com.')) { store.set(LS.hist, []); renderHist(); } };
+  $('clearHist').onclick = () => { if (confirm('Delete the appraisals saved on this phone?')) { store.set(LS.hist, []); renderHist(); } };
 
   const sm = supportMsg(); if (sm) err($('connectErr'), sm);
   if ('serial' in navigator && !('bluetooth' in navigator)) show($('bleBtn'), false);

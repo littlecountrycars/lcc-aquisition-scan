@@ -138,7 +138,6 @@ ul.est li button { width: 40px; height: 40px; border-radius: 8px; border: 1px so
     <h2>First-time setup</h2>
     <ol class="setup">
       <li id="setupPair">Pair the Veepeak once: plug it into a truck, turn the key on, then Android <b>Settings → Bluetooth → Pair new device → OBDII</b>. PIN is usually <b>1234</b>.</li>
-      <li id="setupToken">Tap the gear at the top and paste your monday.com API token so scans can post to Inventory Recon.</li>
       <li>Chrome menu (⋮) → <b>Add to Home screen</b> so this opens like an app.</li>
     </ol>
   </section>
@@ -168,14 +167,14 @@ ul.est li button { width: 40px; height: 40px; border-radius: 8px; border: 1px so
   </section>
 
   <section id="vehicleCard" class="card">
-    <h2><span class="step">2</span>Scan the truck</h2>
+    <h2><span class="step">2</span>Scan the vehicle</h2>
     <div class="grid2">
       <label class="f">Miles<input id="miles" type="number" inputmode="numeric" placeholder="Fills in from scan"></label>
-      <label class="f">Stock #<input id="stock" type="text" autocapitalize="characters" placeholder="Fills in from scan"></label>
+      <label class="f">Lane / run #<input id="stock" type="text" autocapitalize="characters" placeholder="Optional"></label>
     </div>
     <p id="autoNote" class="muted small hidden" style="margin:8px 0 0"></p>
     <label class="check" style="margin:10px 0 4px"><input id="doModules" type="checkbox" checked><span>Also read airbag, ABS, transmission and body modules (Ford, adds about 20 seconds)</span></label>
-    <p class="muted small" style="margin:4px 0 12px">Leave Miles and Stock # blank; the scan reads the VIN and, on most trucks, the mileage. Key on, engine off is the best start: the next step tests the battery while you start it.</p>
+    <p class="muted small" style="margin:4px 0 12px">Miles fills in from the scan on most vehicles. Key on, engine off is the best start (the next step tests the battery as you start it). If the auction already has it running, scan anyway.</p>
     <button id="scanBtn" class="btn dark block" disabled>Scan truck</button>
     <div id="scanProgress" class="progress hidden" style="margin-top:12px" aria-live="polite">
       <div class="bar"><i id="scanBar"></i></div>
@@ -221,16 +220,16 @@ ul.est li button { width: 40px; height: 40px; border-radius: 8px; border: 1px so
   </section>
 
   <section id="driveCard" class="card hidden">
-    <h2><span class="step">4</span>Test drive</h2>
-    <p id="driveIntro" class="muted" style="margin:0 0 12px">Tap start <b>before</b> you pull out, set the phone in a mount, and don't touch it while driving. Drive 10+ minutes: town, a few hard accelerations, and 30 seconds at a steady 45&ndash;65 mph. Tap End when you're parked.</p>
-    <button id="driveBtn" class="btn dark block">Start test drive</button>
+    <h2><span class="step">4</span>Lane drive</h2>
+    <p id="driveIntro" class="muted" style="margin:0 0 12px">Lane drive. Tap start <b>before</b> you roll and don't touch the phone while moving. From a stop, accelerate firmly up to 35&ndash;45 mph so it shifts through its gears, then brake firmly to a stop. Turn around and do it again if there's time. Tap End when stopped.</p>
+    <button id="driveBtn" class="btn dark block">Start lane drive</button>
     <div id="driveLive" class="hidden" style="margin-top:12px">
       <div class="grid2">
         <div><span id="mphNow" class="kpi" style="font-size:56px">0</span> <span class="muted">mph</span></div>
         <div><span id="driveRpm" class="kpi" style="font-size:56px">0</span> <span class="muted">RPM</span></div>
       </div>
       <p id="driveSoFar" class="muted" style="margin:6px 0 12px"></p>
-      <button id="driveEnd" class="btn primary block" style="min-height:72px; font-size:20px">End test drive</button>
+      <button id="driveEnd" class="btn primary block" style="min-height:72px; font-size:20px">End lane drive</button>
     </div>
     <div id="driveResult" class="hidden" style="margin-top:12px">
       <div id="driveVerdict" class="verdict"></div>
@@ -239,34 +238,25 @@ ul.est li button { width: 40px; height: 40px; border-radius: 8px; border: 1px so
   </section>
 
   <section id="sendCard" class="card hidden">
-    <h2><span class="step">5</span>Estimate &amp; send</h2>
+    <h2><span class="step">5</span>Recon cost &amp; save</h2>
     <div id="estBox" style="display:grid; gap:8px; margin-bottom:12px">
-      <span class="muted small">Prefilled from typical costs for each finding (parts + labor). Adjust to your real numbers, remove what you won't do, add anything else.</span>
+      <span class="muted small">Likely recon cost to factor into your bid. Prefilled from typical parts + labor for each finding; adjust, remove, or add lines (tires, glass, body, detail).</span>
       <ul id="estLines" class="est"></ul>
       <div class="row"><input id="estNewDesc" type="text" placeholder="Add a line (tires, detail, glass…)" style="flex:2; min-width:0"><input id="estNewAmt" type="number" inputmode="numeric" placeholder="$" style="flex:1; min-width:0"><button id="estAdd" class="btn">Add</button></div>
-      <div class="esttotal"><span>Day-1 estimate</span><span id="estTotal" class="kpi">$0</span></div>
+      <div class="esttotal"><span>Estimated recon</span><span id="estTotal" class="kpi">$0</span></div>
       <div id="estWarn" class="notice err hidden"></div>
     </div>
-    <label class="f" style="margin-bottom:12px">Notes for the team (optional)<textarea id="notes" placeholder="Anything you saw, heard or smelled"></textarea></label>
-    <div id="matchBox" class="match"><span class="muted small">Looking up stock # on the board…</span></div>
-    <div id="newBox" class="hidden" style="margin-top:10px; display:grid; gap:8px">
-      <label class="f">New vehicle name<input id="newName" type="text" placeholder="2021 F150 XL Black 172k"></label>
-      <span class="muted small">Same style as the board: year, model, trim, color, miles. Adds it under Initial Inspection, On Site.</span>
-    </div>
-    <div id="searchBox" class="hidden" style="margin-top:10px; display:grid; gap:8px">
-      <div class="row"><input id="searchQ" type="text" placeholder="Search the board by name" style="flex:1"><button id="searchBtn" class="btn">Search</button></div>
-      <ul id="searchResults" class="hist"></ul>
-    </div>
-    <label class="check" style="margin-top:12px"><input id="fillSubs" type="checkbox" checked><span>Also fill in the <b>Check engine light</b> and <b>Battery</b> walk-around items (status, notes, parts needed)</span></label>
+    <label class="f" style="margin-bottom:12px">Notes (optional)<textarea id="notes" placeholder="Anything you saw, heard or smelled; condition, color, options"></textarea></label>
     <div class="row" style="margin-top:12px">
-      <button id="sendBtn" class="btn primary" style="flex:1" disabled>Send to monday.com</button>
+      <button id="shareBtn" class="btn primary" style="flex:1">Share summary</button>
       <button id="printBtn" class="btn">Save PDF</button>
     </div>
+    <p class="muted small" style="margin:10px 0 0">Every appraisal is saved on this phone under Recent appraisals. Nothing is sent anywhere unless you share it.</p>
     <div id="sendMsg" class="notice hidden" role="status" style="margin-top:12px"></div>
   </section>
 
   <section id="histCard" class="card hidden">
-    <h2>Recent scans</h2>
+    <h2>Recent appraisals</h2>
     <ul id="hist" class="hist"></ul>
   </section>
 </main>
@@ -276,15 +266,9 @@ ul.est li button { width: 40px; height: 40px; border-radius: 8px; border: 1px so
 <dialog id="settings">
   <form method="dialog" class="in">
     <h2 style="font-size:22px; text-transform:uppercase">Settings</h2>
-    <label class="f">Your name<input id="techName" type="text" placeholder="Dylan" autocomplete="given-name"></label>
-    <label class="f">monday.com API token
-      <input id="token" type="password" autocomplete="off" placeholder="Paste token">
-    </label>
-    <span class="muted small">In monday.com: your profile picture → <b>Developers</b> → <b>My access tokens</b> → Copy. It's saved only on this phone.</span>
-    <div class="row"><button id="testBtn" type="button" class="btn">Test connection</button><span id="testMsg" class="muted small"></span></div>
-    <label class="check"><input id="fillDefault" type="checkbox" checked><span>Fill in walk-around items by default</span></label>
+    <label class="f">Your name<input id="techName" type="text" placeholder="Jonathan" autocomplete="given-name"></label>
     <div class="row" style="justify-content:space-between">
-      <button id="clearHist" type="button" class="btn link">Clear saved scans</button>
+      <button id="clearHist" type="button" class="btn link">Clear saved appraisals</button>
       <button class="btn primary" value="save">Done</button>
     </div>
   </form>
