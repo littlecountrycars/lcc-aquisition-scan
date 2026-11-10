@@ -1,64 +1,11 @@
-/* Acquisition Scan offline support.
-   The offline copy lives in this app's OWN IndexedDB database ("lcc-acquisition-scan"), not in the
-   browser's shared Cache Storage list. Other apps on the same site (e.g. Check-In Scan at
-   littlecountrycars.github.io) can clear Cache Storage when they update; they never touch this
-   database, so nothing another app does can remove this app's offline copy.
-   Network first so updates arrive; saved copy as fallback when there's no signal. */
-const VERSION = 'v4';
-const DB = 'lcc-acquisition-scan';
-const STORE = 'files';
-const OLD_CACHE_PREFIX = 'lcc-acquisition-scan-'; // earlier versions used Cache Storage; cleaned up on activate
-const SHELL = ['./', 'index.html', 'obd.js', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-app.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png'];
-const BASE = new URL('./', self.location).pathname; // e.g. /lcc-aquisition-scan/
-
-function openDb() {
-  return new Promise((resolve, reject) => {
-    const r = indexedDB.open(DB, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(STORE);
-    r.onsuccess = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
-  });
-}
-async function dbGet(key) {
-  const db = await openDb();
-  return new Promise((resolve) => {
-    const q = db.transaction(STORE).objectStore(STORE).get(key);
-    q.onsuccess = () => resolve(q.result || null); q.onerror = () => resolve(null);
-  });
-}
-async function dbPut(key, val) {
-  const db = await openDb();
-  return new Promise((resolve) => {
-    const t = db.transaction(STORE, 'readwrite'); t.objectStore(STORE).put(val, key);
-    t.oncomplete = () => resolve(); t.onerror = () => resolve();
-  });
-}
-// One key per file, ignoring ?query; the app's front page is stored as index.html
-function keyFor(url) {
-  const p = new URL(url, self.location).pathname;
-  return p === BASE || p === BASE.slice(0, -1) ? BASE + 'index.html' : p;
-}
-async function save(url, res) {
-  if (!res || !res.ok || res.type === 'opaque') return;
-  const body = await res.clone().arrayBuffer();
-  await dbPut(keyFor(url), { body, type: res.headers.get('Content-Type') || '', at: Date.now(), version: VERSION });
-}
-async function load(url) {
-  const hit = await dbGet(keyFor(url)) || await dbGet(BASE + 'index.html');
-  return hit ? new Response(hit.body, { status: 200, headers: { 'Content-Type': hit.type } }) : Response.error();
-}
-
-self.addEventListener('install', (e) => {
-  e.waitUntil(Promise.all(SHELL.map((f) => fetch(f, { cache: 'no-store' }).then((r) => save(new URL(f, self.location).href, r)).catch(() => {})))
-    .then(() => self.skipWaiting()));
-});
+/* Acquisition Scan moved to Vehicle Scan (https://littlecountrycars.github.io/lcc-vehicle-scan/).
+   This worker replaces the old one: it removes the old offline copy (only this app's own) and unregisters itself. */
+self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys()
-    .then((ks) => Promise.all(ks.filter((k) => k.startsWith(OLD_CACHE_PREFIX)).map((k) => caches.delete(k))))
-    .then(() => self.clients.claim()));
-});
-self.addEventListener('fetch', (e) => {
-  const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.origin !== location.origin || !url.pathname.startsWith(BASE)) return; // NHTSA, fonts, other apps: untouched
-  e.respondWith(fetch(e.request).then((res) => { e.waitUntil(save(e.request.url, res)); return res; }).catch(() => load(e.request.url)));
+  e.waitUntil((async () => {
+    try { await new Promise((r) => { const q = indexedDB.deleteDatabase('lcc-acquisition-scan'); q.onsuccess = q.onerror = q.onblocked = () => r(); }); } catch (x) {}
+    await self.registration.unregister();
+    const cs = await self.clients.matchAll({ type: 'window' });
+    cs.forEach((c) => { try { c.navigate('https://littlecountrycars.github.io/lcc-vehicle-scan/?mode=auction'); } catch (x) {} });
+  })());
 });

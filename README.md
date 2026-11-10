@@ -1,3 +1,5 @@
+> **Moved (Nov 10, 2026):** this app is now the Auction mode of **Vehicle Scan**, repo littlecountrycars/lcc-vehicle-scan, live at https://littlecountrycars.github.io/lcc-vehicle-scan/. This repository is archived; its page only redirects. Make all changes in lcc-vehicle-scan.
+
 # LCC Acquisition Scan
 
 Live: https://littlecountrycars.github.io/lcc-aquisition-scan/
