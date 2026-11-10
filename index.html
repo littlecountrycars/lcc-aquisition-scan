@@ -136,7 +136,7 @@ ul.est li button { width: 40px; height: 40px; border-radius: 8px; border: 1px so
 .toast { position: fixed; left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); background: var(--fg); color: var(--bg); padding: 12px 14px; border-radius: 10px; z-index: 20; font-size: 14px; }
 .foot { text-align: center; font-size: 12px; color: var(--muted); padding: 8px 16px; }
 @media print {
-  #nextTop, #nextBtn, #scoutBtn, #quickBtn { display: none !important; }
+  #nextTop, #nextBtn, #scoutBtn, #scoutCallBtn, #scoutHint, #quickBtn { display: none !important; }
   .top .iconbtn, .pill, .noprint, #connectCard, .card .btn, #estBox .row, #sendCard textarea, #sendCard .check, #matchBox, #newBox, #searchBox, #histCard, .foot, .parts a, #driveIntro, #idleIntro { display: none !important; }
   body { background: #fff; color: #000; } .card { border: 1px solid #ccc; break-inside: avoid; }
   .verdict { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -208,7 +208,11 @@ ul.est li button { width: 40px; height: 40px; border-radius: 8px; border: 1px so
     <p id="callWhy" style="margin:6px 0 0"></p>
     <ul id="flags" class="flags"></ul>
     <div id="callBid" class="bidline hidden"><span>Max bid</span><span id="callBidAmt" class="kpi"></span></div>
-    <div class="row" style="margin-top:12px"><button id="nextTop" class="btn block">Next vehicle</button></div>
+    <div class="row" style="margin-top:12px">
+      <button id="scoutCallBtn" class="btn primary" style="flex:1">Max bid in SCOUT</button>
+      <button id="nextTop" class="btn" style="flex:1">Next vehicle</button>
+    </div>
+    <p id="scoutHint" class="muted small hidden" style="margin:8px 0 0">VIN copied. In SCOUT, paste it into Check a truck, then come back here and type SCOUT's <b>expected sale price</b>. This app takes off this truck's recon and your $2,500.</p>
   </section>
 
   <section id="resultCard" class="card hidden">
@@ -278,7 +282,7 @@ ul.est li button { width: 40px; height: 40px; border-radius: 8px; border: 1px so
       <h3 style="font-size:20px; text-transform:uppercase">Max bid</h3>
       <div class="grid2">
         <label class="f">Expected sale price<input id="salePrice" type="number" inputmode="numeric" placeholder="From SCOUT"></label>
-        <div style="display:grid; align-content:end"><button id="scoutBtn" class="btn">Look up in SCOUT</button></div>
+        <div style="display:grid; align-content:end"><button id="scoutBtn" class="btn">Open SCOUT</button></div>
       </div>
       <span class="muted small">In SCOUT, use the <b>expected sale price</b>, not SCOUT's max bid. SCOUT's max bid already takes off its own typical recon and gross; this one uses this vehicle's scan.</span>
       <div id="bidMath" class="math"></div>
@@ -297,6 +301,7 @@ ul.est li button { width: 40px; height: 40px; border-radius: 8px; border: 1px so
 
   <section id="histCard" class="card hidden">
     <h2>Recent appraisals</h2>
+    <p id="keepNote" class="muted small" style="margin:0 0 8px"></p>
     <ul id="hist" class="hist"></ul>
   </section>
 </main>
@@ -309,6 +314,12 @@ ul.est li button { width: 40px; height: 40px; border-radius: 8px; border: 1px so
     <label class="f">Your name<input id="techName" type="text" placeholder="Jonathan" autocomplete="given-name"></label>
     <label class="f">Minimum profit after recon<input id="minProfit" type="number" inputmode="numeric" placeholder="2500"></label>
     <label class="f">Buyer fee + transport per vehicle<input id="feesTransport" type="number" inputmode="numeric" placeholder="0"></label>
+    <label class="f">Keep appraisals on this phone
+      <select id="keepDays" style="width:100%; border:1px solid var(--line); background:var(--bg); border-radius:10px; padding:12px; min-height:48px; font-size:16px">
+        <option value="1">1 day (auction day), then clear</option>
+        <option value="7">7 days</option>
+      </select>
+    </label>
     <span class="muted small">Max bid = expected sale price − estimated recon − minimum profit − buyer fee + transport.</span>
     <div class="row" style="justify-content:space-between">
       <button id="clearHist" type="button" class="btn link">Clear saved appraisals</button>

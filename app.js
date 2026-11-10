@@ -9,7 +9,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
   };
-  let settings = Object.assign({ name: '', minProfit: 2500, fees: 0 }, store.get(LS.settings, {}));
+  let settings = Object.assign({ name: '', minProfit: 2500, fees: 0, keepDays: 1 }, store.get(LS.settings, {}));
   const SCOUT_URL = 'https://claude.ai/artifact/6bBGxC5drP42KJE9sGJYgZ';
   let elm = null, transport = null, current = null, busy = false;
 
@@ -551,6 +551,7 @@
     const ul = $('flags'); ul.textContent = '';
     for (const f of c.flags) { const li = document.createElement('li'); li.className = f.sev; li.textContent = f.title; if (f.detail) { const sp = document.createElement('span'); sp.textContent = f.detail; li.appendChild(sp); } ul.appendChild(li); }
     show($('callBid'), !!c.mb);
+    show($('scoutCallBtn'), !c.mb);
     if (c.mb) $('callBidAmt').textContent = c.mb.bid > 0 ? money(c.mb.bid) : 'None';
     show($('callCard'));
   }
@@ -566,10 +567,39 @@
     if (mb.fees) row('Buyer fee + transport', '− ' + money(mb.fees));
     row('Max bid', mb.bid > 0 ? money(mb.bid) : 'None', 'tot');
   }
+  let awaitingScout = false;
   function lookupScout() {
+    if (current) { current.notes = $('notes').value.trim(); updateHist(current); }
     const vin = current && current.vin;
-    if (vin) { try { navigator.clipboard.writeText(vin); toast('VIN copied. Paste it into SCOUT’s Check a truck, then bring back the expected sale price.'); } catch (e) {} }
+    if (vin) { try { navigator.clipboard.writeText(vin); } catch (e) {} }
+    awaitingScout = !!current;
+    show($('scoutHint'), !!current);
     window.open(SCOUT_URL, '_blank', 'noopener');
+  }
+  // Back from SCOUT: put the cursor where the number goes
+  function backFromScout() {
+    if (document.visibilityState !== 'visible' || !awaitingScout || !current) return;
+    awaitingScout = false;
+    show($('sendCard'));
+    $('bidBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(() => { try { $('salePrice').focus(); } catch (e) {} }, 400);
+    toast('Type SCOUT\u2019s expected sale price.');
+  }
+  // A link back from SCOUT can carry the number: ...#vin=1FT...&sale=24500
+  function takeFromLink() {
+    const q = new URLSearchParams((location.hash || '').replace(/^#/, '') || location.search.replace(/^\?/, ''));
+    const sale = +String(q.get('sale') || '').replace(/[^0-9.]/g, '');
+    if (!sale) return;
+    const vin = String(q.get('vin') || '').toUpperCase();
+    let rec = current && (!vin || current.vin === vin) ? current : null;
+    if (!rec) rec = store.get(LS.hist, []).find((r) => !vin || r.vin === vin) || null;
+    history.replaceState(null, '', location.pathname);
+    if (!rec) { toast('Got a sale price from SCOUT, but no matching appraisal on this phone.'); return; }
+    rec.salePrice = sale;
+    if (rec !== current) { current = rec; }
+    updateHist(rec);
+    if (current && current.scan) { $('salePrice').value = sale; renderBid(); renderCall(); show($('callCard')); }
+    toast('Expected sale price ' + money(sale) + ' from SCOUT.');
   }
 
   /* ---------- quick appraisal and next vehicle ---------- */
@@ -592,7 +622,7 @@
     current = null;
     ['callCard', 'resultCard', 'idleCard', 'driveCard', 'sendCard', 'autoNote', 'idleResult', 'idleLive', 'driveResult', 'driveLive', 'crankLive', 'crankFindings'].forEach((id) => { const e = $(id); if (e) show(e, false); });
     show($('driveBtn')); $('driveBtn').textContent = 'Start lane drive';
-    $('miles').value = ''; $('notes').value = ''; $('salePrice').value = ''; $('sendMsg').classList.add('hidden');
+    $('miles').value = ''; $('notes').value = ''; $('salePrice').value = ''; $('sendMsg').classList.add('hidden'); show($('scoutHint'), false); awaitingScout = false;
     $('stock').value = /^\d+$/.test(lane) ? String(+lane + 1) : '';
     err($('scanErr'), '');
     if (transport && transport.name === 'Demo') { OBD.DEMO_TRUCK.demoRunning = false; OBD.DEMO_TRUCK.driveAt = 0; }
@@ -695,8 +725,17 @@
     rec = rec || current; if (!rec) return;
     const h = store.get(LS.hist, []).filter((x) => x.id !== rec.id);
     h.unshift(rec);
-    store.set(LS.hist, h.slice(0, 25));
+    store.set(LS.hist, keepRecent(h));
     renderHist();
+  }
+  // Appraisals are held on the phone for the auction day (or a week), then cleared automatically
+  function keepRecent(h) {
+    const cutoff = Date.now() - (+settings.keepDays || 1) * 86400000;
+    return h.filter((r) => new Date(r.at).getTime() >= cutoff || (current && r.id === current.id)).slice(0, 300);
+  }
+  function purgeOld() {
+    const h = store.get(LS.hist, []); const k = keepRecent(h);
+    if (k.length !== h.length) store.set(LS.hist, k);
   }
   function updateHist(rec) {
     if (!rec) return;
@@ -705,9 +744,10 @@
   }
   function renderHist() {
     const h = store.get(LS.hist, []);
+    const kn = $('keepNote'); if (kn) kn.textContent = 'Kept on this phone for ' + ((+settings.keepDays || 1) === 7 ? '7 days' : '1 day') + ', then cleared automatically. Change it in Settings.';
     show($('histCard'), h.length > 0);
     const ul = $('hist'); ul.textContent = '';
-    for (const rec of h.slice(0, 10)) {
+    for (const rec of h.slice(0, 60)) {
       const li = document.createElement('li');
       const left = document.createElement('span');
       const dot = document.createElement('i'); dot.className = 'dot ' + ((rec.call && rec.call.level) || rec.assessment.overall);
@@ -724,11 +764,12 @@
 
   /* ---------- settings ---------- */
   function openSettings() {
-    $('techName').value = settings.name; $('minProfit').value = settings.minProfit; $('feesTransport').value = settings.fees || '';
+    $('techName').value = settings.name; $('minProfit').value = settings.minProfit; $('feesTransport').value = settings.fees || ''; $('keepDays').value = String(settings.keepDays || 1);
     $('settings').showModal();
   }
   function saveSettings() {
-    settings = { name: $('techName').value.trim(), minProfit: $('minProfit').value === '' ? 2500 : +$('minProfit').value, fees: +$('feesTransport').value || 0 };
+    settings = { name: $('techName').value.trim(), minProfit: $('minProfit').value === '' ? 2500 : +$('minProfit').value, fees: +$('feesTransport').value || 0, keepDays: +$('keepDays').value || 1 };
+    purgeOld(); renderHist();
     store.set(LS.settings, settings);
     if (current) { renderBid(); renderCall(); }
     updateSetup();
@@ -753,6 +794,9 @@
   $('quickBtn').onclick = quick;
   $('nextBtn').onclick = nextVehicle; $('nextTop').onclick = nextVehicle;
   $('scoutBtn').onclick = lookupScout;
+  $('scoutCallBtn').onclick = lookupScout;
+  document.addEventListener('visibilitychange', backFromScout);
+  window.addEventListener('hashchange', takeFromLink);
   $('salePrice').addEventListener('input', () => { if (current) { current.salePrice = +$('salePrice').value || null; renderBid(); renderCall(); } });
   $('salePrice').addEventListener('change', () => { if (current) updateHist(current); });
   window.addEventListener('online', retryPending);
@@ -768,11 +812,11 @@
   $('stock').addEventListener('change', () => { if (current) { current.stock = $('stock').value.trim().toUpperCase(); $('stock').value = current.stock; saveHist(); } });
   $('settingsBtn').onclick = openSettings;
   $('settings').addEventListener('close', saveSettings);
-  $('clearHist').onclick = () => { if (confirm('Delete the appraisals saved on this phone?')) { store.set(LS.hist, []); renderHist(); } };
+  $('clearHist').onclick = () => { if (confirm('Delete the appraisals saved on this phone now?')) { store.set(LS.hist, []); renderHist(); } };
 
   const sm = supportMsg(); if (sm) err($('connectErr'), sm);
   if ('serial' in navigator && !('bluetooth' in navigator)) show($('bleBtn'), false);
   if (!('bluetooth' in navigator)) show($('bleBtn'), false);
-  setPill(); updateSetup(); renderHist(); setTimeout(retryPending, 3000);
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  purgeOld(); setPill(); updateSetup(); renderHist(); takeFromLink(); setTimeout(retryPending, 3000);
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
